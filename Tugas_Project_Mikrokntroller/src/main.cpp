@@ -20,31 +20,31 @@
 // ============================================================================
 // 2. PARAMETER AMBANG BATAS (THRESHOLDS) & PWM
 // ============================================================================
-// Ambang Batas Asap (Nilai ADC 0 - 4095)
+// Ambang Batas Asap (Nilai ADC 0 - 4095) - VERSI REVISI TERBARU
 const int BATAS_ASAP_SEDANG        = 600;   // Kipas 50%
 const int BATAS_ASAP_BANYAK        = 1200;  // Kipas 75%
 const int BATAS_ASAP_BAHAYA        = 3000;  // Kipas 100% + Buzzer
 
-// Ambang Batas Suhu Dapur (Celcius)
+// Ambang Batas Suhu Dapur (Celcius) - VERSI REVISI TERBARU
 const float BATAS_SUHU_SEDANG      = 36.0f; // Kipas 50%
 const float BATAS_SUHU_TINGGI      = 40.0f; // Kipas 75%
 const float BATAS_SUHU_BAHAYA      = 42.0f; // Kipas 100% + Buzzer
 
 // Konfigurasi Hardware PWM (LEDC ESP32)
-const int CHANNEL_PWM_KIPAS        = 0;     // Channel internal LEDC (0-7)
-const int FREKUENSI_PWM_KIPAS      = 500;   // 500 Hz (Ideal untuk modul MOSFET)
-const int RESOLUSI_PWM_BIT         = 8;     // 8-bit (Nilai 0 - 255)
+const int CHANNEL_PWM_KIPAS        = 0;     
+const int FREKUENSI_PWM_KIPAS      = 500;   
+const int RESOLUSI_PWM_BIT         = 8;     
 
 // Nilai Duty Cycle PWM (Skala 0 - 255)
-const int PWM_MATI                 = 0;     // 0%
-const int PWM_50_PERSEN            = 128;   // ~50%
-const int PWM_75_PERSEN            = 191;   // ~75%
-const int PWM_100_PERSEN           = 255;   // 100%
+const int PWM_MATI                 = 0;     
+const int PWM_50_PERSEN            = 128;   
+const int PWM_75_PERSEN            = 191;   
+const int PWM_100_PERSEN           = 255;   
 
 // Pengaturan Filter & Pewaktu (Millisecond)
-const float BOBOT_FILTER_BARU      = 0.25f; // Filter penghalus bacaan MQ-2
-const unsigned long INTERVAL_UTAMA = 300;   // Jeda baca MQ-2, Saklar & OLED (300ms)
-const unsigned long INTERVAL_DHT   = 2000;  // Jeda khusus DHT22 (2 detik)
+const float BOBOT_FILTER_BARU      = 0.25f; 
+const unsigned long INTERVAL_UTAMA = 300;   
+const unsigned long INTERVAL_DHT   = 2000;  
 
 // ============================================================================
 // 3. INISIALISASI OBJEK & VARIABEL GLOBAL
@@ -72,6 +72,9 @@ String teksMode           = "INIT";
 unsigned long waktuTerakhirUtama = 0;
 unsigned long waktuTerakhirDHT   = 0;
 
+// Flag External Interrupt (Syarat Wajib Tugas)
+volatile bool statusSaklarBerubah = false;
+
 // Deklarasi Fungsi Prototype
 void bacaSensorDHT();
 void bacaInputAnalog();
@@ -80,6 +83,11 @@ void terapkanOutputHardware();
 void perbaruiLayarOLED();
 void cetakSerialMonitor();
 void tampilkanLayarPembuka();
+
+// Fungsi Interrupt Service Routine (ISR) untuk merespons perpindahan sakelar instan
+void IRAM_ATTR isrDeteksiSaklar() {
+  statusSaklarBerubah = true;
+}
 
 // ============================================================================
 // 4. FUNGSI SETUP
@@ -94,7 +102,11 @@ void setup() {
   pinMode(PIN_POTENSIO, INPUT);
   pinMode(PIN_MQ2_ANALOG, INPUT);
 
-  // Setup Hardware PWM (Kompatibel dengan Core ESP32 2.x & 3.x)
+  // Mendaftarkan External Interrupt pada pin sakelar 
+  attachInterrupt(digitalPinToInterrupt(PIN_SAKLAR_TURBO), isrDeteksiSaklar, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(PIN_SAKLAR_MANUAL), isrDeteksiSaklar, CHANGE);
+
+  // Setup Hardware PWM 
   #if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
     ledcAttach(PIN_PWM_KIPAS, FREKUENSI_PWM_KIPAS, RESOLUSI_PWM_BIT);
     ledcWrite(PIN_PWM_KIPAS, PWM_MATI);
@@ -117,7 +129,7 @@ void setup() {
     }
   }
 
-  // Ambil nilai awal MQ-2 agar filter langsung stabil sejak awal
+  // Ambil nilai awal MQ-2 agar filter stabil
   asapTerfilter = analogRead(PIN_MQ2_ANALOG);
 
   tampilkanLayarPembuka();
@@ -136,9 +148,16 @@ void loop() {
     bacaSensorDHT();
   }
 
-  // B. Baca MQ-2, Saklar, Kontrol Kipas & Layar setiap 300 ms
-  if (waktuSekarang - waktuTerakhirUtama >= INTERVAL_UTAMA) {
-    waktuTerakhirUtama = waktuSekarang;
+  // B. Baca rutin setiap 300 ms, ATAU paksa baca instan jika ada Interrupt sakelar
+  if ((waktuSekarang - waktuTerakhirUtama >= INTERVAL_UTAMA) || statusSaklarBerubah) {
+    
+    // Jika terpicu oleh interrupt, matikan flag dan reset timer agar efisien
+    if (statusSaklarBerubah) {
+      statusSaklarBerubah = false;
+      waktuTerakhirUtama = waktuSekarang;
+    } else {
+      waktuTerakhirUtama = waktuSekarang;
+    }
 
     bacaInputAnalog();
     tentukanModeDanKipas();
@@ -162,10 +181,7 @@ void bacaSensorDHT() {
 
 void bacaInputAnalog() {
   asapMentah = analogRead(PIN_MQ2_ANALOG);
-  
-  // Exponential Moving Average agar pembacaan asap naik/turun secara halus
   asapTerfilter = (int)((asapTerfilter * (1.0f - BOBOT_FILTER_BARU)) + (asapMentah * BOBOT_FILTER_BARU));
-
   nilaiPotensio = analogRead(PIN_POTENSIO);
 }
 
@@ -174,25 +190,19 @@ void tentukanModeDanKipas() {
   bool saklarManualAktif = (digitalRead(PIN_SAKLAR_MANUAL) == LOW);
 
   if (saklarTurboAktif) {
-    // --- MODE TURBO (100%) ---
     teksMode     = "TURBO (100%)";
     pwmKipas     = PWM_100_PERSEN;
     persenKipas  = 100;
     statusBuzzer = false;
   } 
   else if (saklarManualAktif) {
-    // --- MODE MANUAL (POTENSIOMETER) ---
     teksMode     = "MANUAL";
     pwmKipas     = map(nilaiPotensio, 0, 4095, 0, 255);
     persenKipas  = map(pwmKipas, 0, 255, 0, 100);
     statusBuzzer = false;
   } 
   else {
-    // --- MODE OTOMATIS BERTINGKAT (3 LEVEL) ---
-    // Cek dari kondisi paling kritis (Bahaya -> Tinggi -> Sedang -> Aman)
-    
     if (asapTerfilter >= BATAS_ASAP_BAHAYA || suhuDapur >= BATAS_SUHU_BAHAYA) {
-      // LEVEL 3: BAHAYA (Kipas 100% + Buzzer Bunyi)
       if (asapTerfilter >= BATAS_ASAP_BAHAYA && suhuDapur >= BATAS_SUHU_BAHAYA) {
         teksMode = "BAHAYA: ASAP+SUHU";
       } else if (asapTerfilter >= BATAS_ASAP_BAHAYA) {
@@ -205,7 +215,6 @@ void tentukanModeDanKipas() {
       statusBuzzer = true;
     } 
     else if (asapTerfilter >= BATAS_ASAP_BANYAK || suhuDapur >= BATAS_SUHU_TINGGI) {
-      // LEVEL 2: BANYAK / TINGGI (Kipas 75%, Buzzer Mati)
       if (asapTerfilter >= BATAS_ASAP_BANYAK) {
         teksMode = "AUTO: ASAP BANYAK";
       } else {
@@ -216,7 +225,6 @@ void tentukanModeDanKipas() {
       statusBuzzer = false;
     } 
     else if (asapTerfilter >= BATAS_ASAP_SEDANG || suhuDapur >= BATAS_SUHU_SEDANG) {
-      // LEVEL 1: SEDANG (Kipas 50%, Buzzer Mati)
       if (asapTerfilter >= BATAS_ASAP_SEDANG) {
         teksMode = "AUTO: ASAP SEDANG";
       } else {
@@ -227,7 +235,6 @@ void tentukanModeDanKipas() {
       statusBuzzer = false;
     } 
     else {
-      // LEVEL 0: AMAN (Kipas Mati, Buzzer Mati)
       teksMode     = "AUTO: AMAN";
       pwmKipas     = PWM_MATI;
       persenKipas  = 0;
@@ -251,12 +258,10 @@ void perbaruiLayarOLED() {
   oled.setTextSize(1);
   oled.setTextColor(SSD1306_WHITE);
 
-  // Baris 1: Status Mode Spesifik
   oled.setCursor(0, 0);
   oled.println(teksMode);
   oled.drawLine(0, 10, 128, 10, SSD1306_WHITE);
 
-  // Baris 2: Suhu & Kelembapan
   oled.setCursor(0, 15);
   oled.print("Suhu : ");
   oled.print(suhuDapur, 1);
@@ -264,13 +269,11 @@ void perbaruiLayarOLED() {
   oled.print(kelembapanDapur, 0);
   oled.println("%)");
 
-  // Baris 3: Nilai Asap Terfilter
   oled.setCursor(0, 28);
   oled.print("Asap : ");
   oled.print(asapTerfilter);
   oled.println(" ADC");
 
-  // Baris 4: Persentase Kipas & Status Buzzer
   oled.setCursor(0, 42);
   oled.print("Kipas: ");
   oled.print(persenKipas);
@@ -281,7 +284,6 @@ void perbaruiLayarOLED() {
     oled.println("");
   }
 
-  // Baris 5: Progress Bar Visual Kecepatan Kipas
   oled.drawRect(0, 54, 128, 8, SSD1306_WHITE);
   int lebarBar = map(persenKipas, 0, 100, 0, 124);
   oled.fillRect(2, 56, lebarBar, 4, SSD1306_WHITE);
