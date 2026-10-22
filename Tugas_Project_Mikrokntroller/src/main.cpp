@@ -27,7 +27,7 @@ const int BATAS_ASAP_BAHAYA        = 3000;  // Kipas 100% + Buzzer
 
 // Ambang Batas Suhu Dapur (Celcius)
 const float BATAS_SUHU_SEDANG      = 36.0f; // Kipas 50%
-const float BATAS_SUHU_TINGGI      = 39.0f; // Kipas 75%
+const float BATAS_SUHU_TINGGI      = 40.0f; // Kipas 75%
 const float BATAS_SUHU_BAHAYA      = 42.0f; // Kipas 100% + Buzzer
 
 // Konfigurasi Hardware PWM (LEDC ESP32)
