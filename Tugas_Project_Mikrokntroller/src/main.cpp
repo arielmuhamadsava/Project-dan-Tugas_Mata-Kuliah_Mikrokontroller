@@ -72,7 +72,7 @@ String teksMode           = "INIT";
 unsigned long waktuTerakhirUtama = 0;
 unsigned long waktuTerakhirDHT   = 0;
 
-// Flag External Interrupt (Syarat Wajib Tugas)
+// Flag External Interrupt
 volatile bool statusSaklarBerubah = false;
 
 // Deklarasi Fungsi Prototype
